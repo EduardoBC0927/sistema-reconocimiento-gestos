@@ -1,128 +1,163 @@
-"""
-GESTOS CON ÁLGEBRA LINEAL - PASO 1
-Tema: Espacios Vectoriales
-
-CONCEPTO:
-    La mano tiene 21 puntos clave (landmarks).
-    Cada punto tiene coordenadas (x, y, z).
-    Vector resultante: v ∈ R⁶³
-"""
-
 import cv2
 import numpy as np
 import mediapipe as mp
-import urllib.request
 import os
 
-# ── Descargar modelo si no existe ──────────────────────────
 MODEL_PATH = "hand_landmarker.task"
 if not os.path.exists(MODEL_PATH):
-    print("Descargando modelo de mano... (solo la primera vez)")
-    url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
-    urllib.request.urlretrieve(url, MODEL_PATH)
-    print("Modelo descargado ✓")
+    print("Falta hand_landmarker.task en la carpeta del proyecto.")
+    exit()
 
-# ── Configurar MediaPipe Tasks API (0.10.x) ────────────────
-BaseOptions      = mp.tasks.BaseOptions
-HandLandmarker   = mp.tasks.vision.HandLandmarker
-HandOptions      = mp.tasks.vision.HandLandmarkerOptions
-RunningMode      = mp.tasks.vision.RunningMode
+BaseOptions    = mp.tasks.BaseOptions
+HandLandmarker = mp.tasks.vision.HandLandmarker
+HandOptions    = mp.tasks.vision.HandLandmarkerOptions
+RunningMode    = mp.tasks.vision.RunningMode
 
 options = HandOptions(
     base_options=BaseOptions(model_asset_path=MODEL_PATH),
     running_mode=RunningMode.IMAGE,
-    num_hands=2
+    num_hands=1
 )
 
-# Conexiones entre landmarks para dibujar el esqueleto
 CONEXIONES = [
-    (0,1),(1,2),(2,3),(3,4),          # pulgar
-    (0,5),(5,6),(6,7),(7,8),          # índice
-    (0,9),(9,10),(10,11),(11,12),     # medio
-    (0,13),(13,14),(14,15),(15,16),   # anular
-    (0,17),(17,18),(18,19),(19,20),   # meñique
-    (5,9),(9,13),(13,17)              # palma
+    (0,1),(1,2),(2,3),(3,4),
+    (0,5),(5,6),(6,7),(7,8),
+    (0,9),(9,10),(10,11),(11,12),
+    (0,13),(13,14),(14,15),(15,16),
+    (0,17),(17,18),(18,19),(19,20),
+    (5,9),(9,13),(13,17)
 ]
 
-# ── Cámara Android ─────────────────────────────────────────
-cap = cv2.VideoCapture("http://192.168.1.104:8080/video")
+cap = cv2.VideoCapture(1)
 
-print("=" * 60)
-print("  PASO 1 — Representación vectorial de la mano")
-print("  Muestra tu mano | Presiona Q para salir")
-print("=" * 60)
+# Estado de la esfera - vector posicion en R2
+p_esfera = np.array([400, 300], dtype=float)
+r_esfera = 70
+agarrada = False
+h_prev   = None
+DIST_AGARRE = 90
 
-frame_count = 0
+def dibujar_esfera(frame, centro, radio, agarrada):
+    cx, cy = int(centro[0]), int(centro[1])
+    color_nucleo = (255, 140, 0) if agarrada else (255, 100, 30)
+    color_brillo = (180, 80,  0) if agarrada else (200, 60,  10)
+    for i in range(6, 0, -1):
+        overlay = frame.copy()
+        cv2.circle(overlay, (cx, cy), radio + i * 10, color_brillo, -1)
+        cv2.addWeighted(overlay, 0.06 * i, frame, 1 - 0.06 * i, 0, frame)
+    cv2.circle(frame, (cx, cy), radio, color_nucleo, -1)
+    ox = int(-radio * 0.3)
+    oy = int(-radio * 0.35)
+    rv = max(int(radio * 0.25), 5)
+    cv2.circle(frame, (cx + ox, cy + oy), rv, (255, 220, 180), -1)
+    cv2.circle(frame, (cx + ox, cy + oy), rv, (255, 255, 255), 2)
+    cv2.circle(frame, (cx, cy), radio, (255, 200, 100), 2)
+
+def dibujar_panel(frame, p_esfera, h_centroide, distancia, radio, modo):
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (460, 215), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.65, frame, 0.35, 0, frame)
+    color = (0,200,255) if modo=="AGARRANDO" else (0,255,150) if modo=="ESCALANDO" else (200,200,200)
+    cv2.putText(frame, f"MODO: {modo}",
+                (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2)
+    cv2.putText(frame, f"p_esfera = [{p_esfera[0]:.0f}, {p_esfera[1]:.0f}]",
+                (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100,220,255), 1)
+    if h_centroide is not None:
+        cv2.putText(frame, f"h_mano   = [{h_centroide[0]:.0f}, {h_centroide[1]:.0f}]",
+                    (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100,220,255), 1)
+        cv2.putText(frame, f"||p - h|| = {distancia:.1f}px",
+                    (10,100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,200,80), 1)
+    cv2.putText(frame, "Traslacion: p' = p + d  (d = desplazamiento)",
+                (10,130), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180,180,180), 1)
+    cv2.putText(frame, f"Escala: S = [[k,0],[0,k]]   r' = {radio}px",
+                (10,155), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180,180,180), 1)
+    cv2.putText(frame, "Acercar mano=agarrar | Pinch=escalar | Q=salir",
+                (10,195), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (120,120,120), 1)
+
+print("="*60)
+print("  GestOS - Esfera Virtual con Algebra Lineal")
+print("  Acerca la mano a la esfera naranja para agarrarla")
+print("  Pinch (pulgar+indice juntos) para escalar")
+print("  Presiona Q para salir")
+print("="*60)
 
 with HandLandmarker.create_from_options(options) as detector:
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
-            print("No se pudo conectar. Verifica que IP Webcam esté activo.")
+            print("Sin senal de camara.")
             break
 
         frame = cv2.flip(frame, 1)
-        h, w = frame.shape[:2]
+        h_img, w_img = frame.shape[:2]
 
-        # Procesar con MediaPipe
-        mp_img   = mp.Image(image_format=mp.ImageFormat.SRGB,
-                            data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        result   = detector.detect(mp_img)
+        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB,
+                          data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        result = detector.detect(mp_img)
 
-        # ── ÁLGEBRA LINEAL ─────────────────────────────────
+        modo        = "LIBRE"
+        h_centroide = None
+        distancia   = 9999
+
         if result.hand_landmarks:
             for hand in result.hand_landmarks:
+                puntos = [(int(lm.x * w_img), int(lm.y * h_img)) for lm in hand]
 
-                # Construir vector en R⁶³
-                vector_mano = []
-                puntos = []
-                for lm in hand:
-                    vector_mano.extend([lm.x, lm.y, lm.z])
-                    puntos.append((int(lm.x * w), int(lm.y * h)))
-
-                v     = np.array(vector_mano)   # shape (63,)
-                norma = np.linalg.norm(v)
-                frame_count += 1
-
-                # Dibujar conexiones (esqueleto)
                 for a, b in CONEXIONES:
-                    cv2.line(frame, puntos[a], puntos[b], (0, 200, 255), 2)
-
-                # Dibujar puntos
+                    cv2.line(frame, puntos[a], puntos[b], (0,200,255), 2)
                 for i, (px, py) in enumerate(puntos):
-                    color = (0, 255, 150) if i == 0 else (255, 255, 255)
-                    cv2.circle(frame, (px, py), 5, color, -1)
+                    cv2.circle(frame, (px,py), 5,
+                               (0,255,150) if i==0 else (255,255,255), -1)
 
-                # Panel informativo
-                overlay = frame.copy()
-                cv2.rectangle(overlay, (0, 0), (430, 165), (0, 0, 0), -1)
-                cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+                # Centroide: promedio de vectores posicion
+                pts = np.array(puntos, dtype=float)
+                h_centroide = np.mean(pts, axis=0)
 
-                cv2.putText(frame, "ESPACIO VECTORIAL R^63",
-                            (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 150), 2)
-                cv2.putText(frame, "Landmarks: 21 puntos x (x,y,z)",
-                            (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (200, 200, 200), 1)
-                cv2.putText(frame, f"Dimension del vector: {len(v)}  (= 21 x 3)",
-                            (10, 76), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (200, 200, 200), 1)
-                cv2.putText(frame, f"v[0:6] = [{v[0]:.2f}, {v[1]:.2f}, {v[2]:.2f},",
-                            (10, 108), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (100, 220, 255), 1)
-                cv2.putText(frame, f"          {v[3]:.2f}, {v[4]:.2f}, {v[5]:.2f}, ...]",
-                            (10, 128), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (100, 220, 255), 1)
-                cv2.putText(frame, f"||v|| (norma) = {norma:.4f}",
-                            (10, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 200, 0), 1)
+                # Distancia vectorial ||p - h||
+                distancia = np.linalg.norm(p_esfera - h_centroide)
 
-                if frame_count % 30 == 0:
-                    print(f"[R⁶³] norma={norma:.4f} | v[:6]={np.round(v[:6], 3)}")
+                pulgar = np.array(puntos[4], dtype=float)
+                indice = np.array(puntos[8], dtype=float)
+                dist_pinch = np.linalg.norm(pulgar - indice)
 
+                if dist_pinch < 50:
+                    # Escala con matriz S = k * I
+                    modo = "ESCALANDO"
+                    k = np.clip(dist_pinch / 50, 0.4, 2.0)
+                    S = k * np.eye(2)
+                    r_esfera = int(np.clip(S[0,0] * 70, 30, 150))
+
+                elif distancia < DIST_AGARRE:
+                    # Traslacion: p' = p + d
+                    modo     = "AGARRANDO"
+                    agarrada = True
+                    if h_prev is not None:
+                        d        = h_centroide - h_prev
+                        p_esfera = p_esfera + d
+                        p_esfera[0] = np.clip(p_esfera[0], 0, w_img)
+                        p_esfera[1] = np.clip(p_esfera[1], 0, h_img)
+                    h_prev = h_centroide.copy()
+                else:
+                    agarrada = False
+                    h_prev   = None
+
+                if distancia < DIST_AGARRE * 2:
+                    overlay = frame.copy()
+                    cv2.line(overlay,
+                             (int(h_centroide[0]), int(h_centroide[1])),
+                             (int(p_esfera[0]),    int(p_esfera[1])),
+                             (0,255,200), 1)
+                    cv2.addWeighted(overlay, 0.4, frame, 0.6, 0, frame)
         else:
-            cv2.putText(frame, "Muestra tu mano...",
-                        (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 100, 255), 2)
+            agarrada = False
+            h_prev   = None
 
-        cv2.imshow("GestOS - Paso 1: Vector de la Mano", frame)
+        dibujar_esfera(frame, p_esfera, r_esfera, agarrada)
+        dibujar_panel(frame, p_esfera, h_centroide, distancia, r_esfera, modo)
 
+        cv2.imshow("GestOS - Esfera Virtual", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
 cap.release()
 cv2.destroyAllWindows()
-print("\nPaso 1 completado ✓")
