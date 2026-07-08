@@ -28,7 +28,7 @@ CONEXIONES = [
     (5,9),(9,13),(13,17)
 ]
 
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture("http://192.168.1.151:8080/video")
 
 # Estado de la esfera - vector posicion en R2
 p_esfera = np.array([400, 300], dtype=float)
