@@ -4,7 +4,7 @@ import mediapipe as mp
 import os
 import math
 
-MODEL_PATH = "hand_landmarker.task"
+MODEL_PATH = "ml/hand_landmarker.task"
 if not os.path.exists(MODEL_PATH):
     print("Falta hand_landmarker.task en la carpeta del proyecto.")
     exit()
@@ -27,8 +27,7 @@ CONEXIONES = [
     (15,16),(0,17),(17,18),(18,19),(19,20),(5,9),(9,13),(13,17)
 ]
 
-URL_CAMARA = "http://192.168.1.151:8080/video"
-cap = cv2.VideoCapture(URL_CAMARA)
+cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     print(f"No se pudo conectar a la IP. Iniciando webcam local...")
     cap = cv2.VideoCapture(0)
@@ -115,18 +114,25 @@ def dibujar_cubo_3d(frame, centro, escala, ax, ay, az, estado):
 
 def dibujar_panel(frame, estado, p_cubo, h_centroide):
     overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (480, 180), (0, 0, 0), -1)
+    # Hicimos el panel un poco más alto (200px) para que quepa el nuevo texto
+    cv2.rectangle(overlay, (0, 0), (520, 200), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-    
-    c_texto = (0, 255, 200) if estado == "ROTANDO" else (0, 160, 255) if estado == "MOVIENDO" else (200, 200, 200)
+
+    # Colores por estado (agregamos color rosa para escalar)
+    if estado == "ROTANDO": c_texto = (0, 255, 200)
+    elif estado == "MOVIENDO": c_texto = (0, 160, 255)
+    elif estado == "ESCALANDO": c_texto = (255, 100, 255) 
+    else: c_texto = (200, 200, 200)
+
     cv2.putText(frame, f"ESTADO: {estado}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, c_texto, 2)
     cv2.putText(frame, f"Rotacion (Rad): [{ang_x:.2f}, {ang_y:.2f}]", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100,220,255), 1)
-    
+
     if h_centroide is not None:
         cv2.putText(frame, f"Centroide Mano: [{h_centroide[0]:.0f}, {h_centroide[1]:.0f}]", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100,220,255), 1)
-        
-    cv2.putText(frame, "Pinch CERCA del cubo = Mover (Trasladar)", (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180,180,180), 1)
-    cv2.putText(frame, "Pinch LEJOS del cubo = Rotar (Girar eje X/Y)", (10, 155), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180,180,180), 1)
+    
+    cv2.putText(frame, "Pinch INDICE CERCA del cubo = Mover", (10, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180,180,180), 1)
+    cv2.putText(frame, "Pinch INDICE LEJOS del cubo = Rotar", (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180,180,180), 1)
+    cv2.putText(frame, "Pinch MEDIO (Pulgar+Medio) + Mover Arriba/Abajo = Escalar", (10, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255,150,255), 1)
 
 with HandLandmarker.create_from_options(options) as detector:
     while cap.isOpened():
@@ -155,12 +161,28 @@ with HandLandmarker.create_from_options(options) as detector:
 
             pulgar = np.array(puntos[4], dtype=float)
             indice = np.array(puntos[8], dtype=float)
+            medio  = np.array(puntos[12], dtype=float)
             dist_pinch = np.linalg.norm(pulgar - indice)
             distancia_al_cubo = np.linalg.norm(p_cubo - h_centroide)
+            dist_pinch_medio = np.linalg.norm(pulgar - medio)
 
-            if dist_pinch < 50:
-                # Si acabamos de hacer pinch, decidimos el modo basado en la distancia
-                if estado_interaccion == "LIBRE":
+            # --- NUEVO MODO: ESCALAR ---
+            if dist_pinch_medio < 50:
+                estado_interaccion = "ESCALANDO"
+                
+                if h_prev is not None:
+                    delta = h_centroide - h_prev
+                    # Eje Y en pantalla: mover arriba (negativo) agranda, abajo achica
+                    escala_cubo -= delta[1] * 0.5 
+                    # Limitamos el tamaño para que no desaparezca ni se vuelva infinito
+                    escala_cubo = max(20.0, min(escala_cubo, 300.0))
+                    
+                h_prev = h_centroide.copy()
+
+            # --- MODOS ACTUALES: MOVER Y ROTAR ---
+            elif dist_pinch < 50:
+                # Si venimos de LIBRE o de ESCALAR, decidimos el nuevo modo por distancia
+                if estado_interaccion == "LIBRE" or estado_interaccion == "ESCALANDO":
                     if distancia_al_cubo < escala_cubo * 1.5:
                         estado_interaccion = "MOVIENDO"
                     else:
@@ -172,19 +194,18 @@ with HandLandmarker.create_from_options(options) as detector:
                     if estado_interaccion == "MOVIENDO":
                         p_cubo += delta
                     elif estado_interaccion == "ROTANDO":
-                        # El movimiento en X gira el eje Y, y viceversa
                         ang_y += delta[0] * 0.02
                         ang_x -= delta[1] * 0.02
 
                 h_prev = h_centroide.copy()
+                
+            # --- MANO ABIERTA ---
             else:
                 estado_interaccion = "LIBRE"
                 h_prev = None
-                # Se removió la rotación automática aquí
         else:
             estado_interaccion = "LIBRE"
             h_prev = None
-            # Se removió la rotación automática aquí
 
         dibujar_cubo_3d(frame, p_cubo, escala_cubo, ang_x, ang_y, ang_z, estado_interaccion)
         dibujar_panel(frame, estado_interaccion, p_cubo, h_centroide)

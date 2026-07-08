@@ -28,15 +28,12 @@ CONEXIONES = [
     (5,9),(9,13),(13,17)
 ]
 
-<<<<<<< HEAD
-cap = cv2.VideoCapture("http://192.168.1.151:8080/video")
-=======
-# ---------- Geometria del cubo (coordenadas locales, de -1 a 1) ----------
+cap = cv2.VideoCapture(0)
+
 VERTICES = np.array([
     [-1,-1,-1], [ 1,-1,-1], [ 1, 1,-1], [-1, 1,-1],   # cara trasera  (z=-1)
     [-1,-1, 1], [ 1,-1, 1], [ 1, 1, 1], [-1, 1, 1],   # cara delantera (z=+1)
 ], dtype=float)
->>>>>>> f81293b83258b09e4ba23110d4d29c2bf7ba1c88
 
 ARISTAS = [
     (0,1),(1,2),(2,3),(3,0),
