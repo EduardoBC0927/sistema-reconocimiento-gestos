@@ -4,7 +4,7 @@ import mediapipe as mp
 import os
 import math
 
-MODEL_PATH = "ml/hand_landmarker.task"
+MODEL_PATH = "hand_landmarker.task"
 if not os.path.exists(MODEL_PATH):
     print("Falta hand_landmarker.task en la carpeta del proyecto.")
     exit()
@@ -27,12 +27,12 @@ CONEXIONES = [
     (15,16),(0,17),(17,18),(18,19),(19,20),(5,9),(9,13),(13,17)
 ]
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture("http://10.250.180.216:8080/video")
 if not cap.isOpened():
     print(f"No se pudo conectar a la IP. Iniciando webcam local...")
     cap = cv2.VideoCapture(0)
 
-# ==========================================
+#==========================================
 # ESTADO DEL CUBO 3D
 # ==========================================
 p_cubo = np.array([400.0, 300.0]) # Posición X, Y en pantalla

@@ -21,7 +21,7 @@ options = HandOptions(
 )
 
 # ---------- Configuración de Cámara IP ----------
-URL_CAMARA = "http://192.168.1.151:8080/video"
+URL_CAMARA = "http://10.250.180.216:8080/video"
 cap = cv2.VideoCapture(URL_CAMARA)
 
 if not cap.isOpened():

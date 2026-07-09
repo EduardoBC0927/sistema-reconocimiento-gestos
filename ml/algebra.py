@@ -1,9 +1,18 @@
+El contenido es generado por usuarios y no está verificado.
+"""
+╔══════════════════════════════════════════════════════════════╗
+║         GESTOS CON ÁLGEBRA LINEAL                           ║
+║         Temas: Vectores, Transformaciones, Matrices,        ║
+║                Autovalores y Autovectores                   ║
+╚══════════════════════════════════════════════════════════════╝
+"""
+
 import cv2
 import numpy as np
 import mediapipe as mp
 import os
 
-MODEL_PATH = "ml/hand_landmarker.task"
+MODEL_PATH = "hand_landmarker.task"
 if not os.path.exists(MODEL_PATH):
     print("Falta hand_landmarker.task en la carpeta del proyecto.")
     exit()
@@ -28,11 +37,10 @@ CONEXIONES = [
     (5,9),(9,13),(13,17)
 ]
 
-cap = cv2.VideoCapture(0)
-
+# ── Geometría del cubo ─────────────────────────────────────
 VERTICES = np.array([
-    [-1,-1,-1], [ 1,-1,-1], [ 1, 1,-1], [-1, 1,-1],   # cara trasera  (z=-1)
-    [-1,-1, 1], [ 1,-1, 1], [ 1, 1, 1], [-1, 1, 1],   # cara delantera (z=+1)
+    [-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
+    [-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1],
 ], dtype=float)
 
 ARISTAS = [
@@ -42,15 +50,15 @@ ARISTAS = [
 ]
 
 CARAS = [
-    (0,1,2,3), (4,5,6,7),
-    (0,1,5,4), (2,3,7,6),
-    (1,2,6,5), (0,3,7,4)
+    (0,1,2,3),(4,5,6,7),
+    (0,1,5,4),(2,3,7,6),
+    (1,2,6,5),(0,3,7,4)
 ]
 
 LUZ = np.array([0.35, -0.5, -0.8])
 LUZ = LUZ / np.linalg.norm(LUZ)
 
-# ---------- Algebra: rotaciones ----------
+# ── Álgebra: rotaciones ────────────────────────────────────
 def Rx(t):
     c, s = np.cos(t), np.sin(t)
     return np.array([[1,0,0],[0,c,-s],[0,s,c]])
@@ -60,8 +68,6 @@ def Ry(t):
     return np.array([[c,0,s],[0,1,0],[-s,0,c]])
 
 def rodrigues(eje, angulo):
-    """Formula de Rodrigues: R = I + sin(t)*K + (1-cos(t))*K^2
-    (matriz de rotacion a partir de un eje unitario y un angulo)"""
     if angulo < 1e-6:
         return np.eye(3)
     k = eje / (np.linalg.norm(eje) + 1e-9)
@@ -71,51 +77,52 @@ def rodrigues(eje, angulo):
     return np.eye(3) + np.sin(angulo)*K + (1-np.cos(angulo))*(K @ K)
 
 def matriz_a_eje_angulo(R):
-    """Inversa de Rodrigues: obtiene (eje, angulo) a partir de una matriz de rotacion,
-    usando la parte antisimetrica R - R^T y la traza de R."""
     cos_a = np.clip((np.trace(R) - 1) / 2, -1.0, 1.0)
     angulo = np.arccos(cos_a)
     if angulo < 1e-6:
-        return np.array([0.0, 0.0, 1.0]), 0.0
+        return np.array([0.0,0.0,1.0]), 0.0
     eje = np.array([R[2,1]-R[1,2], R[0,2]-R[2,0], R[1,0]-R[0,1]])
     eje = eje / (2*np.sin(angulo) + 1e-9)
     return eje, angulo
 
 def ortonormalizar(R):
-    """Corrige la deriva numerica acumulada para que R siga siendo una rotacion valida."""
     U, _, Vt = np.linalg.svd(R)
     return U @ Vt
 
 def marco_mano(p3d):
-    """
-    Construye una base ortonormal (3 vectores perpendiculares entre si) que
-    describe la orientacion de la mano en el espacio 3D real (hand_world_landmarks):
-      adelante = muneca(0) -> nudillo medio(9)
-      lateral  = nudillo indice(5) -> nudillo menique(17)
-      normal   = adelante x lateral   (perpendicular a la palma)
-    lateral se reortogonaliza (Gram-Schmidt) para que quede una base limpia.
-    """
     adelante = p3d[9]  - p3d[0]
     lateral  = p3d[17] - p3d[5]
-
     adelante = adelante / (np.linalg.norm(adelante) + 1e-9)
     normal   = np.cross(adelante, lateral)
     normal   = normal / (np.linalg.norm(normal) + 1e-9)
     lateral  = np.cross(normal, adelante)
     lateral  = lateral / (np.linalg.norm(lateral) + 1e-9)
-
     return np.column_stack([adelante, lateral, normal])
 
-# ---------- Dibujo ----------
+# ══════════════════════════════════════════════════════════
+#  AUTOVALORES Y AUTOVECTORES DE R
+#  La matriz de rotación R tiene un autovector real con
+#  autovalor λ=1 → ese vector ES el eje de rotación.
+#  Los otros dos autovalores son complejos: e^(±iθ)
+#  lo que confirma que R es una rotación pura.
+# ══════════════════════════════════════════════════════════
+def calcular_auto(R):
+    autovalores, autovectores = np.linalg.eig(R)
+    # Buscar el autovalor más cercano a 1 (real)
+    idx = np.argmin(np.abs(autovalores - 1.0))
+    eje_auto = np.real(autovectores[:, idx])
+    eje_auto = eje_auto / (np.linalg.norm(eje_auto) + 1e-9)
+    lambda1  = np.real(autovalores[idx])
+    return eje_auto, lambda1, autovalores
+
+# ── Dibujo del cubo ────────────────────────────────────────
 def dibujar_cubo(frame, centro, escala, R, agarrada):
     v_local = VERTICES * escala
-    v_rot   = v_local @ R.T          # v' = R @ v para cada vertice
-
-    base = (255,140,0) if agarrada else (255,100,30)
-
+    v_rot   = v_local @ R.T
+    base    = (255,140,0) if agarrada else (255,100,30)
     info_caras = []
     for cara in CARAS:
-        idx = list(cara)
+        idx   = list(cara)
         p_loc = v_local[idx]
         p_rot = v_rot[idx]
         normal = np.cross(p_rot[1]-p_rot[0], p_rot[2]-p_rot[0])
@@ -123,85 +130,99 @@ def dibujar_cubo(frame, centro, escala, R, agarrada):
         normal = normal/n if n > 1e-8 else normal
         centro_local = np.mean(p_loc, axis=0)
         if np.dot(normal, centro_local) < 0:
-            normal = -normal                     # forzar normal "hacia afuera"
+            normal = -normal
         z_prom = np.mean(p_rot[:,2])
         info_caras.append((z_prom, idx, normal))
-
-    info_caras.sort(key=lambda t: -t[0])         # pintor: lejos -> cerca
-
+    info_caras.sort(key=lambda t: -t[0])
     for z_prom, idx, normal in info_caras:
         if normal[2] > 1e-6:
-            continue                              # cara oculta (back-face culling)
+            continue
         intensidad = np.clip(np.dot(normal, -LUZ), 0.25, 1.0)
-        pts2d = np.array([[centro[0]+v_rot[i,0], centro[1]+v_rot[i,1]] for i in idx],
-                          dtype=np.int32)
+        pts2d = np.array([[centro[0]+v_rot[i,0], centro[1]+v_rot[i,1]] for i in idx], dtype=np.int32)
         col = tuple(int(c*intensidad) for c in base)
         cv2.fillConvexPoly(frame, pts2d, col, lineType=cv2.LINE_AA)
-
     for a, b in ARISTAS:
         pa = (int(centro[0]+v_rot[a,0]), int(centro[1]+v_rot[a,1]))
         pb = (int(centro[0]+v_rot[b,0]), int(centro[1]+v_rot[b,1]))
         cv2.line(frame, pa, pb, (255,225,160), 2, cv2.LINE_AA)
 
-    for i in range(8):
-        p = (int(centro[0]+v_rot[i,0]), int(centro[1]+v_rot[i,1]))
-        cv2.circle(frame, p, 3, (255,255,255), -1)
+    # ── Dibujar autovector (eje de rotación) sobre el cubo ──
+    # El autovector con λ=1 indica visualmente el eje sobre
+    # el que está rotando el cubo en este momento
+    eje_auto, lambda1, _ = calcular_auto(R)
+    cx, cy = int(centro[0]), int(centro[1])
+    longitud = escala * 1.5
+    ex = int(cx + eje_auto[0] * longitud)
+    ey = int(cy + eje_auto[1] * longitud)
+    cv2.arrowedLine(frame, (cx, cy), (ex, ey), (0, 255, 255), 2, tipLength=0.3)
+    cv2.putText(frame, "v1 (autovector, lambda=1)",
+                (ex + 5, ey), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0,255,255), 1)
 
 def dibujar_panel(frame, p_cubo, h_centroide, distancia, tam_cubo, modo, R_cubo):
     overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (500, 245), (0, 0, 0), -1)
+    cv2.rectangle(overlay, (0, 0), (520, 290), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.65, frame, 0.35, 0, frame)
-    color = (0,200,255) if modo=="AGARRANDO" else (0,255,150) if modo=="ESCALANDO" else (200,200,200)
+
+    color = (0,200,255) if modo=="AGARRANDO" else \
+            (0,255,150) if modo=="ESCALANDO" else (200,200,200)
+
     cv2.putText(frame, f"MODO: {modo}",
                 (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2)
     cv2.putText(frame, f"p_cubo = [{p_cubo[0]:.0f}, {p_cubo[1]:.0f}]",
                 (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100,220,255), 1)
+
     if h_centroide is not None:
-        cv2.putText(frame, f"h_mano   = [{h_centroide[0]:.0f}, {h_centroide[1]:.0f}]",
+        cv2.putText(frame, f"h_mano = [{h_centroide[0]:.0f}, {h_centroide[1]:.0f}]",
                     (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100,220,255), 1)
         cv2.putText(frame, f"||p - h|| = {distancia:.1f}px",
                     (10,100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,200,80), 1)
 
     ang_tot = np.degrees(np.arccos(np.clip((np.trace(R_cubo)-1)/2, -1, 1)))
-    cv2.putText(frame, f"angulo(R_cubo) = {ang_tot:5.1f} grados   (t=arccos((tr(R)-1)/2))",
+    cv2.putText(frame, f"angulo(R) = {ang_tot:5.1f} deg",
                 (10,123), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180,220,180), 1)
-    cv2.putText(frame, "Traslacion: p' = p + d            (d = desplazamiento)",
+    cv2.putText(frame, "Traslacion: p' = p + d",
                 (10,148), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180,180,180), 1)
-    cv2.putText(frame, f"Escala: S = k * I3                 lado' = {int(tam_cubo*2)}px",
+    cv2.putText(frame, f"Escala: S = k*I   lado={int(tam_cubo*2)}px",
                 (10,171), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180,180,180), 1)
-    cv2.putText(frame, "Rotacion: R' = Rodrigues(eje,t) . R   (eje = v_prev x v_act)",
+    cv2.putText(frame, "Rotacion: R = Rodrigues(eje, theta)",
                 (10,194), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (180,180,180), 1)
-    cv2.putText(frame, "Agarrar=mover+girar | Pinch=escalar | Q=salir",
-                (10,222), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (120,120,120), 1)
 
-print("="*60)
-print("  GestOS - Cubo Virtual con Algebra Lineal")
-print("  Acerca la mano al cubo para agarrarlo y moverlo")
-print("  Gira la muneca mientras lo tienes agarrado para rotarlo")
-print("  Pinch (pulgar+indice juntos) para escalar")
-print("  Presiona Q para salir")
-print("="*60)
+    # ── Panel de autovalores/autovectores ──────────────────
+    eje_auto, lambda1, autovalores = calcular_auto(R_cubo)
+    cv2.putText(frame, "── AUTOVALORES Y AUTOVECTORES ──",
+                (10, 218), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0,255,255), 1)
+    cv2.putText(frame, f"lambda_1 = {lambda1:.4f}  (autovalor real = 1 -> eje de rotacion)",
+                (10, 238), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0,255,255), 1)
+    cv2.putText(frame, f"v1 = [{eje_auto[0]:.2f}, {eje_auto[1]:.2f}, {eje_auto[2]:.2f}]  (autovector = eje de rotacion)",
+                (10, 258), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0,255,255), 1)
+    cv2.putText(frame, f"|lambda_2,3| = {abs(autovalores[1]):.4f}  (modulo = 1 -> rotacion pura)",
+                (10, 278), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150,255,200), 1)
 
 cap = cv2.VideoCapture(0)
 
-# ---------- Estado del cubo ----------
-p_cubo   = np.array([400.0, 300.0])                    # vector posicion en R2 (pantalla)
-tam_cubo = 90.0                                          # semi-arista en pixeles
-R_cubo   = Ry(np.radians(-25)) @ Rx(np.radians(20))      # orientacion inicial (vista 3/4)
+p_cubo   = np.array([400.0, 300.0])
+tam_cubo = 90.0
+R_cubo   = Ry(np.radians(-25)) @ Rx(np.radians(20))
 
 agarrada = False
-h_prev   = None       # centroide de la mano en el frame anterior (para trasladar)
-F_prev   = None       # marco de orientacion de la mano en el frame anterior (para rotar)
+h_prev   = None
+F_prev   = None
 
 DIST_AGARRE      = 90
-SENSIBILIDAD_ROT = 1.3     # >1 = giros mas amplios, <1 = giros mas suaves
-UMBRAL_JITTER    = np.radians(0.3)   # ignora micro-vibraciones de deteccion
+SENSIBILIDAD_ROT = 1.3
+UMBRAL_JITTER    = np.radians(0.3)
+
+print("="*60)
+print("  GestOS - Cubo Virtual con Autovalores y Autovectores")
+print("  Acerca la mano al cubo para agarrarlo")
+print("  La flecha cyan muestra el autovector (eje de rotacion)")
+print("  Presiona Q para salir")
+print("="*60)
 
 with HandLandmarker.create_from_options(options) as detector:
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
-            print("Sin senal de camara.")
             break
 
         frame = cv2.flip(frame, 1)
@@ -226,20 +247,17 @@ with HandLandmarker.create_from_options(options) as detector:
                     cv2.circle(frame, (px,py), 5,
                                (0,255,150) if i==0 else (255,255,255), -1)
 
-                # Centroide: promedio de vectores posicion (para agarrar/trasladar)
                 pts = np.array(puntos, dtype=float)
                 h_centroide = np.mean(pts, axis=0)
-                distancia = np.linalg.norm(p_cubo - h_centroide)
+                distancia   = np.linalg.norm(p_cubo - h_centroide)
 
                 pulgar = np.array(puntos[4], dtype=float)
                 indice = np.array(puntos[8], dtype=float)
                 dist_pinch = np.linalg.norm(pulgar - indice)
 
-                # Marco de orientacion 3D de la mano (para rotar)
                 F_actual = marco_mano(puntos3d)
 
                 if dist_pinch < 50:
-                    # Escala con matriz S = k * I
                     modo = "ESCALANDO"
                     k = np.clip(dist_pinch / 50, 0.4, 2.0)
                     S = k * np.eye(3)
@@ -247,7 +265,6 @@ with HandLandmarker.create_from_options(options) as detector:
                     h_prev, F_prev = None, None
 
                 elif distancia < DIST_AGARRE:
-                    # Traslacion: p' = p + d
                     modo     = "AGARRANDO"
                     agarrada = True
                     if h_prev is not None:
@@ -255,15 +272,12 @@ with HandLandmarker.create_from_options(options) as detector:
                         p_cubo = p_cubo + d
                         p_cubo[0] = np.clip(p_cubo[0], 0, w_img)
                         p_cubo[1] = np.clip(p_cubo[1], 0, h_img)
-
-                    # Rotacion: delta de orientacion entre frames -> eje/angulo -> Rodrigues
                     if F_prev is not None:
                         R_delta_medida = F_actual @ F_prev.T
                         eje, ang = matriz_a_eje_angulo(R_delta_medida)
                         if ang > UMBRAL_JITTER:
                             R_delta = rodrigues(eje, ang * SENSIBILIDAD_ROT)
-                            R_cubo = ortonormalizar(R_delta @ R_cubo)
-
+                            R_cubo  = ortonormalizar(R_delta @ R_cubo)
                     h_prev = h_centroide.copy()
                     F_prev = F_actual.copy()
                 else:
@@ -274,7 +288,7 @@ with HandLandmarker.create_from_options(options) as detector:
                     overlay = frame.copy()
                     cv2.line(overlay,
                              (int(h_centroide[0]), int(h_centroide[1])),
-                             (int(p_cubo[0]),    int(p_cubo[1])),
+                             (int(p_cubo[0]),      int(p_cubo[1])),
                              (0,255,200), 1)
                     cv2.addWeighted(overlay, 0.4, frame, 0.6, 0, frame)
         else:
@@ -284,7 +298,7 @@ with HandLandmarker.create_from_options(options) as detector:
         dibujar_cubo(frame, p_cubo, tam_cubo, R_cubo, agarrada)
         dibujar_panel(frame, p_cubo, h_centroide, distancia, tam_cubo, modo, R_cubo)
 
-        cv2.imshow("GestOS - Cubo Virtual", frame)
+        cv2.imshow("GestOS - Autovalores y Autovectores", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 

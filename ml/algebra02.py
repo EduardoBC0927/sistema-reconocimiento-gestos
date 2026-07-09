@@ -22,11 +22,11 @@ options = HandOptions(
 # ==========================================
 # CONFIGURACIÓN DE CÁMARA 
 # ==========================================
-URL_CAMARA = "http://192.168.1.151:8080/video"
+URL_CAMARA = "http://10.250.180.216:8080/video"
 cap = cv2.VideoCapture(URL_CAMARA)
 if not cap.isOpened():
     print(f"No se pudo conectar a la IP. Iniciando webcam local...")
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture()
 
 print("="*60)
 print("  Algebra 02 - Determinantes y Areas")
